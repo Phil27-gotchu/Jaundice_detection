@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Jaundice Monitor</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <header class="top">
+    <div>
+      <h1>Jaundice Monitor</h1>
+      <p class="sub">Reflectance probe · melanin-corrected ratios</p>
+    </div>
+    <div class="status">
+      <span class="status-line" id="onlineLabel">Waiting for device</span>
+      <span class="status-meta" id="lastSeen"></span>
+    </div>
+  </header>
+
+  <main>
+    <section class="metrics" aria-label="Latest reading">
+      <div class="metric">
+        <span class="label">OD Diff</span>
+        <span class="value" id="odDiff">—</span>
+      </div>
+      <div class="metric">
+        <span class="label">B / G</span>
+        <span class="value" id="bgRatio">—</span>
+      </div>
+      <div class="metric">
+        <span class="label">B / R</span>
+        <span class="value" id="brRatio">—</span>
+      </div>
+      <div class="metric metric-wide">
+        <span class="label">Raw RGB</span>
+        <span class="value value-rgb" id="rgbRaw">—</span>
+      </div>
+    </section>
+
+    <section class="grid">
+      <section class="block chart-block">
+        <div class="block-head">
+          <h2>Trends</h2>
+          <p class="hint">R · G · B · B/G · OD</p>
+        </div>
+        <div class="chart-wrap">
+          <canvas id="signalChart"></canvas>
+        </div>
+      </section>
+
+      <aside class="block">
+        <div class="block-head">
+          <h2>Device</h2>
+        </div>
+        <dl class="meta-list">
+          <div>
+            <dt>ID</dt>
+            <dd id="deviceId">—</dd>
+          </div>
+          <div>
+            <dt>Samples</dt>
+            <dd id="sampleCount">0</dd>
+          </div>
+          <div>
+            <dt>Poll</dt>
+            <dd>2 s</dd>
+          </div>
+          <div>
+            <dt>Host</dt>
+            <dd>localhost:3000</dd>
+          </div>
+        </dl>
+      </aside>
+    </section>
+
+    <section class="block">
+      <div class="block-head">
+        <h2>Recent readings</h2>
+        <div class="actions">
+          <button type="button" class="btn" id="exportBtn">Export CSV</button>
+          <button type="button" class="btn" id="refreshBtn">Refresh</button>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>R</th>
+              <th>G</th>
+              <th>B</th>
+              <th>B/G</th>
+              <th>B/R</th>
+              <th>OD</th>
+            </tr>
+          </thead>
+          <tbody id="readingsBody">
+            <tr class="empty">
+              <td colspan="7">No readings yet. Start the ESP with SERVER_URL pointed at this machine.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    Screening aid only — not a clinical diagnosis.
+  </footer>
+
+  <script src="/app.js"></script>
+</body>
+</html>
