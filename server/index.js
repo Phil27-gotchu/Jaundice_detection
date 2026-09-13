@@ -143,6 +143,26 @@ async function handlePostReading(req, res) {
   return sendJson(res, 200, { ok: true, reading });
 }
 
+async function handleHeartbeat(req, res) {
+  if (!checkApiKey(req)) return sendJson(res, 401, { error: "Unauthorized" });
+
+  let body = {};
+  try {
+    const raw = await readBody(req);
+    if (raw.trim()) body = JSON.parse(raw);
+  } catch {
+    return sendJson(res, 400, { error: "Invalid JSON body" });
+  }
+
+  const deviceId =
+    typeof body.deviceId === "string" && body.deviceId.trim()
+      ? body.deviceId.trim()
+      : "esp32-probe-1";
+
+  device = { deviceId, lastSeen: Date.now() };
+  return sendJson(res, 200, { ok: true, device });
+}
+
 function handleGetReadings(req, res, url) {
   const limit = Math.min(500, Math.max(1, Number(url.searchParams.get("limit") || 80) || 80));
   const readings = history.slice(-limit);
@@ -226,6 +246,9 @@ const server = http.createServer(async (req, res) => {
   try {
     if (url.pathname === "/api/readings" && req.method === "POST") {
       return await handlePostReading(req, res);
+    }
+    if (url.pathname === "/api/heartbeat" && req.method === "POST") {
+      return await handleHeartbeat(req, res);
     }
     if (url.pathname === "/api/readings" && req.method === "GET") {
       return handleGetReadings(req, res, url);

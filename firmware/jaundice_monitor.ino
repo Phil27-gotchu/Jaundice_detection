@@ -35,10 +35,10 @@
 // =====================================================
 // WIFI + LOCAL SERVER
 // =====================================================
-const char* WIFI_SSID = "WPU-LIBRARY";
-const char* WIFI_PASS = "WpulibkrC@2524";
+const char* WIFI_SSID = "YOUR_WIFI_SSID";
+const char* WIFI_PASS = "YOUR_WIFI_PASSWORD";
 
-const char* SERVER_URL = "http://10.21.142.18:3000";
+const char* SERVER_URL = "http://YOUR_PC_IP:3000";
 const char* API_KEY    = "jaundice-demo-key-change-me";
 const char* DEVICE_ID  = "esp32-probe-1";
 
@@ -85,6 +85,8 @@ unsigned long lastB = 0;
 float lastBG = 0;
 float lastBR = 0;
 float lastOD = 0;
+unsigned long lastBeatMs = 0;
+const unsigned long BEAT_MS = 8000UL;
 
 void sensorOff() {
   digitalWrite(OE_PIN, HIGH);  // disable output (OE active-LOW)
@@ -197,6 +199,11 @@ void setup() {
     display.println(WiFi.localIP());
     Serial.print("WiFi OK: ");
     Serial.println(WiFi.localIP());
+#if defined(ESP8266)
+    WiFi.setSleepMode(WIFI_NONE_SLEEP);
+#endif
+    bool beatOk = postHeartbeat();
+    Serial.println(beatOk ? "Heartbeat OK" : "Heartbeat FAILED");
   } else {
     display.println("WiFi FAILED");
     display.println("Local OLED only");
@@ -295,6 +302,36 @@ bool postReading(
   return code >= 200 && code < 300;
 }
 
+bool postHeartbeat() {
+  if (WiFi.status() != WL_CONNECTED) return false;
+
+  WiFiClient client;
+  HTTPClient http;
+  String url = String(SERVER_URL) + "/api/heartbeat";
+
+  if (!http.begin(client, url)) {
+    Serial.println("Heartbeat begin failed");
+    return false;
+  }
+
+  http.addHeader("Content-Type", "application/json");
+  http.addHeader("X-API-Key", API_KEY);
+  http.setTimeout(4000);
+
+  String body = "{\"deviceId\":\"" + String(DEVICE_ID) + "\"}";
+  int code = http.POST(body);
+  String resp = http.getString();
+  http.end();
+
+  Serial.print("Heartbeat ");
+  Serial.print(code);
+  Serial.print(" ");
+  Serial.println(resp);
+
+  lastBeatMs = millis();
+  return code >= 200 && code < 300;
+}
+
 void waitForButtonRelease() {
   // Don't start another run until finger is off the button
   unsigned long start = millis();
@@ -322,6 +359,9 @@ void loop() {
       }
     }
     lastBtnState = digitalRead(BTN_PIN);
+    if (millis() - lastBeatMs >= BEAT_MS) {
+      postHeartbeat();
+    }
     delay(20);
     return;
   }
@@ -338,6 +378,7 @@ void loop() {
 
     bool ok = postReading(lastR, lastG, lastB, lastBG, lastBR, lastOD);
     if (!ok) Serial.println("Local sync failed");
+    else Serial.println("Local sync OK");
 
     // Re-arm for the NEXT press (this was missing / stuck before)
     waitForButtonRelease();
