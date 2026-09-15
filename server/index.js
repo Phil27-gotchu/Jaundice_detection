@@ -11,6 +11,7 @@ const http = require("http");
 const fs = require("fs");
 const path = require("path");
 const { networkInterfaces } = require("os");
+const { renderDashboard } = require("../shared/dashboard");
 
 const PORT = Number(process.env.PORT || 3000);
 const API_KEY = process.env.API_KEY || "jaundice-demo-key-change-me";
@@ -25,7 +26,6 @@ let device = null;
 const MIME = {
   ".html": "text/html; charset=utf-8",
   ".css": "text/css; charset=utf-8",
-  ".js": "application/javascript; charset=utf-8",
   ".json": "application/json; charset=utf-8",
   ".svg": "image/svg+xml",
   ".ico": "image/x-icon",
@@ -163,18 +163,35 @@ async function handleHeartbeat(req, res) {
   return sendJson(res, 200, { ok: true, device });
 }
 
-function handleGetReadings(req, res, url) {
-  const limit = Math.min(500, Math.max(1, Number(url.searchParams.get("limit") || 80) || 80));
-  const readings = history.slice(-limit);
+function currentSnapshot(limit = 80) {
+  const capped = Math.min(500, Math.max(1, Number(limit) || 80));
+  const readings = history.slice(-capped);
   const latest = readings.length ? readings[readings.length - 1] : null;
   const online = Boolean(device && Date.now() - device.lastSeen < DEVICE_TIMEOUT_MS);
-
-  return sendJson(res, 200, {
+  return {
     online,
     device,
     latest,
     count: readings.length,
     readings,
+  };
+}
+
+function handleGetReadings(req, res, url) {
+  const limit = url.searchParams.get("limit") || 80;
+  return sendJson(res, 200, currentSnapshot(limit));
+}
+
+function handleDashboard(req, res) {
+  const templatePath = path.join(PUBLIC_DIR, "index.html");
+  fs.readFile(templatePath, "utf8", (err, template) => {
+    if (err) {
+      res.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" });
+      return res.end("Dashboard template missing");
+    }
+    const html = renderDashboard(template, currentSnapshot(80));
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+    res.end(html);
   });
 }
 
@@ -261,6 +278,9 @@ const server = http.createServer(async (req, res) => {
     }
     if (url.pathname === "/api/health") {
       return sendJson(res, 200, { ok: true, service: "jaundice-monitor-local" });
+    }
+    if ((url.pathname === "/" || url.pathname === "/index.html") && req.method === "GET") {
+      return handleDashboard(req, res);
     }
 
     return serveStatic(req, res, url.pathname);

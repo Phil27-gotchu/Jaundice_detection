@@ -1,3 +1,5 @@
+import { renderDashboard } from "../../shared/dashboard.js";
+
 export interface Env {
   READINGS: KVNamespace;
   ASSETS: Fetcher;
@@ -125,15 +127,10 @@ async function handlePostReading(request: Request, env: Env): Promise<Response> 
   return json({ ok: true, reading });
 }
 
-async function handleGetReadings(request: Request, env: Env): Promise<Response> {
-  const url = new URL(request.url);
-  const limit = Math.min(
-    500,
-    Math.max(1, Number(url.searchParams.get("limit") || "80") || 80)
-  );
-
+async function getDashboardData(env: Env, limit = 80) {
+  const capped = Math.min(500, Math.max(1, Number(limit) || 80));
   const history = await getHistory(env);
-  const readings = history.slice(-limit);
+  const readings = history.slice(-capped);
   const latest = readings.length ? readings[readings.length - 1] : null;
 
   const deviceRaw = await env.READINGS.get(DEVICE_KEY);
@@ -149,12 +146,30 @@ async function handleGetReadings(request: Request, env: Env): Promise<Response> 
   const timeout = Number(env.DEVICE_TIMEOUT_MS) || 30000;
   const online = Boolean(device && Date.now() - device.lastSeen < timeout);
 
-  return json({
+  return {
     online,
     device,
     latest,
     count: readings.length,
     readings,
+  };
+}
+
+async function handleGetReadings(request: Request, env: Env): Promise<Response> {
+  const url = new URL(request.url);
+  const limit = Number(url.searchParams.get("limit") || "80") || 80;
+  return json(await getDashboardData(env, limit));
+}
+
+async function handleDashboard(request: Request, env: Env): Promise<Response> {
+  const asset = await env.ASSETS.fetch(new URL("/index.html", request.url));
+  const template = await asset.text();
+  const html = renderDashboard(template, await getDashboardData(env, 80));
+  return new Response(html, {
+    headers: {
+      "Content-Type": "text/html; charset=utf-8",
+      ...corsHeaders(),
+    },
   });
 }
 
@@ -190,6 +205,13 @@ export default {
 
     if (url.pathname === "/api/health") {
       return json({ ok: true, service: "jaundice-monitor" });
+    }
+
+    if (
+      request.method === "GET" &&
+      (url.pathname === "/" || url.pathname === "/index.html")
+    ) {
+      return handleDashboard(request, env);
     }
 
     // Serve dashboard / static assets from public/

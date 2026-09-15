@@ -7,8 +7,20 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
   <link rel="stylesheet" href="/styles.css" />
+  <script>
+    (function () {
+      try {
+        var theme = localStorage.getItem("jaundice-theme");
+        if (theme !== "light" && theme !== "dark") {
+          theme = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        }
+        document.documentElement.setAttribute("data-theme", theme);
+      } catch (err) {
+        document.documentElement.setAttribute("data-theme", "light");
+      }
+    })();
+  </script>
 </head>
 <body>
   <header class="top">
@@ -16,9 +28,15 @@
       <h1>Jaundice Monitor</h1>
       <p class="sub">Reflectance probe · melanin-corrected ratios</p>
     </div>
-    <div class="status">
-      <span class="status-line" id="onlineLabel">Waiting for device</span>
-      <span class="status-meta" id="lastSeen"></span>
+    <div class="top-end">
+      <div class="theme-switch" role="group" aria-label="Colour mode">
+        <button type="button" class="theme-btn" data-theme-set="light">Light</button>
+        <button type="button" class="theme-btn" data-theme-set="dark">Dark</button>
+      </div>
+      <div class="status">
+        <span class="status-line{{ONLINE_CLASS}}" id="onlineLabel">{{ONLINE_LABEL}}</span>
+        <span class="status-meta" id="lastSeen">{{LAST_SEEN}}</span>
+      </div>
     </div>
   </header>
 
@@ -26,19 +44,19 @@
     <section class="metrics" aria-label="Latest reading">
       <div class="metric">
         <span class="label">OD Diff</span>
-        <span class="value" id="odDiff">—</span>
+        <span class="value" id="odDiff">{{OD_DIFF}}</span>
       </div>
       <div class="metric">
         <span class="label">B / G</span>
-        <span class="value" id="bgRatio">—</span>
+        <span class="value" id="bgRatio">{{BG_RATIO}}</span>
       </div>
       <div class="metric">
         <span class="label">B / R</span>
-        <span class="value" id="brRatio">—</span>
+        <span class="value" id="brRatio">{{BR_RATIO}}</span>
       </div>
       <div class="metric metric-wide">
         <span class="label">Raw RGB</span>
-        <span class="value value-rgb" id="rgbRaw">—</span>
+        <span class="value value-rgb" id="rgbRaw">{{RGB_RAW}}</span>
       </div>
     </section>
 
@@ -49,7 +67,7 @@
           <p class="hint">R · G · B · B/G · OD</p>
         </div>
         <div class="chart-wrap">
-          <canvas id="signalChart"></canvas>
+          {{CHART}}
         </div>
       </section>
 
@@ -60,11 +78,11 @@
         <dl class="meta-list">
           <div>
             <dt>ID</dt>
-            <dd id="deviceId">—</dd>
+            <dd id="deviceId">{{DEVICE_ID}}</dd>
           </div>
           <div>
             <dt>Samples</dt>
-            <dd id="sampleCount">0</dd>
+            <dd id="sampleCount">{{SAMPLE_COUNT}}</dd>
           </div>
           <div>
             <dt>Poll</dt>
@@ -82,7 +100,7 @@
       <div class="block-head">
         <h2>Recent readings</h2>
         <div class="actions">
-          <button type="button" class="btn" id="exportBtn">Export CSV</button>
+          <a class="btn" href="/api/export.csv">Export CSV</a>
           <button type="button" class="btn" id="refreshBtn">Refresh</button>
         </div>
       </div>
@@ -100,9 +118,7 @@
             </tr>
           </thead>
           <tbody id="readingsBody">
-            <tr class="empty">
-              <td colspan="7">No readings yet. Start the ESP with SERVER_URL pointed at this machine.</td>
-            </tr>
+            {{TABLE_BODY}}
           </tbody>
         </table>
       </div>
@@ -113,6 +129,40 @@
     Screening aid only — not a clinical diagnosis.
   </footer>
 
-  <script src="/app.js"></script>
+  <script>
+    const POLL_MS = 2000;
+
+    async function refresh() {
+      try {
+        const res = await fetch("/", { cache: "no-store" });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const doc = new DOMParser().parseFromString(await res.text(), "text/html");
+        document.querySelector("header.top").replaceWith(doc.querySelector("header.top"));
+        document.querySelector("main").replaceWith(doc.querySelector("main"));
+      } catch (err) {
+        console.error(err);
+        const label = document.getElementById("onlineLabel");
+        if (!label) return;
+        label.textContent = "API unreachable";
+        label.classList.add("is-offline");
+        label.classList.remove("is-online");
+      }
+    }
+
+    document.addEventListener("click", (event) => {
+      const themeBtn = event.target.closest("[data-theme-set]");
+      if (themeBtn) {
+        const theme = themeBtn.getAttribute("data-theme-set");
+        document.documentElement.setAttribute("data-theme", theme);
+        try {
+          localStorage.setItem("jaundice-theme", theme);
+        } catch (err) {}
+        return;
+      }
+      if (event.target.closest("#refreshBtn")) refresh();
+    });
+
+    setInterval(refresh, POLL_MS);
+  </script>
 </body>
 </html>
