@@ -1,109 +1,138 @@
 # Jaundice Monitor
 
-Low-cost RGB reflectance probe plus a live dashboard on your PC. An ESP (NodeMCU / ESP32) takes a TCS3200 colour reading, posts it to a local Node server, and the page at **http://localhost:3000** shows the latest values, a trend chart, and a readings table.
+ESP8266 NodeMCU probe (TCS3200 + OLED + SD card) plus a live HTML/CSS dashboard on your PC.
+
+The probe takes a 5-second reflectance reading, shows it on the OLED, appends a row to the SD card, and POSTs the same values to a local Node server. The browser at **http://localhost:3000** only talks to that server — never to the ESP directly.
 
 This is a **screening aid only — not a clinical diagnosis.**
 
+## How the pieces connect
+
+```
+Button press → ESP measures RGB → OLED + SD card
+                              ↘
+                    POST /api/readings  →  node server :3000  →  dashboard in the browser
+                    POST /api/heartbeat (idle, every 8s)
+```
+
+- **ESP → PC:** Wi‑Fi HTTP to `SERVER_URL` (this PC’s LAN IP, not `localhost`).
+- **Browser → PC:** `http://localhost:3000`. The page is server-rendered HTML/CSS (SVG chart). It polls every 2 seconds.
+- **Cloudflare:** not used. `cloudflare/` is an optional Worker if you later host the dashboard on the internet. Local run is `node server/index.js`.
+
 ## What you need
 
-- [Node.js](https://nodejs.org/) (v18 or newer is fine)
-- Optional: ESP8266 NodeMCU (or ESP32), TCS3200 colour sensor, SSD1306 OLED, push button
-- ESP and PC on the **same Wi‑Fi** if you use the hardware
+- Node.js v18+ (no `npm install` for the local dashboard)
+- ESP8266 NodeMCU
+- TCS3200 colour sensor, SSD1306 OLED (I2C), micro-SD module, push button
+- ESP and PC on the **same Wi‑Fi**
 
-No `npm install` is required for the local dashboard.
+Arduino libraries: **Adafruit GFX**, **Adafruit SSD1306**, **SD**, **SPI**. Board: ESP8266 NodeMCU.
 
 ## Project layout
 
 | Path | Role |
 |------|------|
-| `server/index.js` | Local server: dashboard HTML + ingest API |
-| `server/seed.js` | Posts fake readings (no ESP needed) |
-| `cloudflare/public/` | Dashboard HTML and CSS |
-| `shared/dashboard.js` | Builds the HTML page and SVG chart |
-| `firmware/jaundice_monitor.ino` | ESP probe firmware |
-| `cloudflare/` | Cloudflare Worker (parked for later) |
+| `firmware/jaundice_monitor.ino` | NodeMCU firmware: measure, OLED, SD, Wi‑Fi sync |
+| `server/index.js` | Local dashboard + API (in-memory history) |
+| `server/seed.js` | Fake readings if you have no ESP |
+| `cloudflare/public/index.html` | Dashboard HTML |
+| `cloudflare/public/styles.css` | Dashboard CSS (Light / Dark) |
+| `shared/dashboard.js` | Fills the HTML and draws the SVG chart |
+| `cloudflare/` | Unused Worker + KV code (parked) |
 
 ## Run the dashboard
-
-From the project folder:
 
 ```bash
 node server/index.js
 ```
 
-Open **http://localhost:3000**
+Open **http://localhost:3000** (not a `file://` path).
 
-The server prints a LAN address such as `http://192.168.x.x:3000`. Use that for the ESP, not `localhost`.
+The server prints an **ESP URL** such as `http://10.23.4.54:3000`. That is what belongs in firmware `SERVER_URL`.
 
 ### Fake data (no ESP)
-
-In a second terminal, from the same folder:
 
 ```bash
 node server/seed.js
 ```
 
-Reload the dashboard. You should see metrics, a trend chart, and a table.
+### Dashboard
 
-### Status messages
+- Latest **OD Diff**, **B/G**, **B/R**, raw RGB
+- Trend chart (R, G, B, B/G, OD)
+- Device id, sample count, recent table
+- **Light / Dark** in the top right (saved in the browser)
+- **Export CSV** / **Refresh**; auto-refresh every 2 seconds
+
+Server-side readings are **RAM only** — restarting Node clears the table. The SD card keeps its own `readings.csv`.
 
 | Status | Meaning |
 |--------|---------|
-| Waiting for device | Server is up; no probe data yet |
-| Device online | Probe posted a reading or heartbeat in the last 30 seconds |
-| Device offline | Probe was seen, but not recently |
-| API unreachable | The browser page cannot reach the Node server (server stopped, or the file was opened as `file://` instead of `http://localhost:3000`) |
+| Waiting for device | Server is up; nothing posted yet |
+| Device online | Reading or heartbeat in the last 30 seconds |
+| Device offline | Probe was seen, then went quiet |
+| API unreachable | Browser cannot reach Node (server stopped, or you opened the HTML file directly) |
 
-Light / Dark colour mode is in the top-right of the page and is remembered in the browser.
+## Firmware
 
-**Export CSV** downloads all stored readings. **Refresh** pulls the latest data without a full page reload. The page also polls every 2 seconds.
-
-Readings live in memory only. Restarting the server clears them.
-
-## Point the ESP at your PC
-
-1. Start the server and copy the printed **ESP URL** (your PC’s LAN IP, port 3000).
-2. In `firmware/jaundice_monitor.ino` set:
+Edit `firmware/jaundice_monitor.ino` before flashing:
 
 ```cpp
 const char* WIFI_SSID = "YOUR_WIFI_SSID";
 const char* WIFI_PASS = "YOUR_WIFI_PASSWORD";
-const char* SERVER_URL = "http://192.168.x.x:3000";  // not localhost
+const char* SERVER_URL = "http://10.23.4.54:3000";  // PC LAN IP — not localhost
 const char* API_KEY    = "jaundice-demo-key-change-me";
+const char* DEVICE_ID  = "esp32-probe-1";
 ```
 
-`API_KEY` must match the server (default `jaundice-demo-key-change-me`).
-
-3. Flash the board. Keep the ESP on the same Wi‑Fi as the PC.
+`API_KEY` must match the server. If this PC’s Wi‑Fi IP changes, update `SERVER_URL` and reflash.
 
 ### Probe behaviour
 
-- Power on → OLED: “Press button”
-- Button → measure for 5 seconds
-- After 5 seconds → final reading on the OLED; values are posted to `/api/readings`
-- Heartbeats go to `/api/heartbeat` so the dashboard can show **Device online** between measurements
+1. Power on → init SD → connect Wi‑Fi → OLED “Press button”
+2. Button (RX / GPIO3) → measure 5 seconds
+3. Show R, G, B, B/G, B/R, OD on OLED; **SD: saved** or **FAILED**
+4. Append `/readings.csv` on the SD card
+5. POST `/api/readings` if Wi‑Fi is up
+6. While idle, POST `/api/heartbeat` every 8 seconds
 
-### TCS3200 wiring (8-pin, NodeMCU)
+If Wi‑Fi fails, the probe still uses OLED + SD (“SD + OLED only”).
 
-| Sensor | Board |
-|--------|--------|
-| VCC | 3V3 |
-| GND | GND |
-| S0 | D0 |
-| S1 | D1 |
-| S2 | D2 |
-| S3 | D3 |
-| OUT | D5 |
-| OE | D8 |
-| Button | D7 → button → GND |
-| OLED SDA | D4 |
-| OLED SCL | D6 |
+Ratios on the ESP:
 
-White LEDs on typical 8-pin TCS3200 modules are tied to VCC and stay on with power.
+- **B/G** = B / G  
+- **B/R** = B / R  
+- **OD** = ln(G+1) − ln(B+1)
+
+TCS3200 S0/S1/OE are hardwired (20% scaling, output always enabled). White LEDs on typical 8-pin modules stay on with power.
+
+### Wiring (NodeMCU)
+
+| Part | Pin |
+|------|-----|
+| TCS3200 VCC | 3V3 |
+| TCS3200 GND | GND |
+| TCS3200 S0 | 3V3 (hardwired) |
+| TCS3200 S1 | GND (hardwired) |
+| TCS3200 OE | GND (hardwired) |
+| TCS3200 S2 | D3 |
+| TCS3200 S3 | D4 |
+| TCS3200 OUT | D0 |
+| OLED SDA | D2 |
+| OLED SCL | D1 |
+| SD SCK | D5 (hardware SPI) |
+| SD MISO | D6 |
+| SD MOSI | D7 |
+| SD CS | D8 |
+| Button | RX (GPIO3) → button → GND |
+
+The button shares UART RX. Release it (or unplug it) while uploading over USB.
+
+SD CSV columns: `id,timestamp_ms,r,g,b,bg_ratio,br_ratio,od_diff`
 
 ## API
 
-Default key: `jaundice-demo-key-change-me` (header `X-API-Key` where noted). Override with `API_KEY`. Port defaults to `3000` (`PORT`).
+Default key `jaundice-demo-key-change-me` (`X-API-Key` where noted). Override with `API_KEY`. Port `3000` (`PORT`).
 
 | Method | Path | Auth |
 |--------|------|------|
@@ -113,8 +142,6 @@ Default key: `jaundice-demo-key-change-me` (header `X-API-Key` where noted). Ove
 | `GET` | `/api/export.csv` | none |
 | `POST` | `/api/clear` | `X-API-Key` |
 | `GET` | `/api/health` | none |
-
-Example reading body:
 
 ```json
 {
@@ -128,6 +155,6 @@ Example reading body:
 }
 ```
 
-## Cloudflare
+## Cloudflare (not in the live path)
 
-`cloudflare/` still has Worker code if you want to host the dashboard later. The local path is `node server/index.js`.
+Do not run Wrangler unless you want a public URL later. A deployed Worker would host the same HTML and store history in KV; the ESP would then use that URL as `SERVER_URL`. Until you deploy, it does nothing.
