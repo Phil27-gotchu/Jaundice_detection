@@ -1,24 +1,26 @@
 /*
  * IoT Jaundice / Liver Screening Probe
- * TCS3200 + SSD1306 OLED → local dashboard on your PC
+ * TCS3200 + SSD1306 OLED + SD Card logging + local dashboard sync
  *
  * Board: ESP8266 NodeMCU
  *
  * Behavior:
  *   - Power on  → wait for button (OLED: "Press button")
  *   - Button    → measure for 5 seconds
- *   - After 5s  → show final reading on OLED, sensor idle
+ *   - After 5s  → show final reading on OLED, log to SD, sync to server, sensor idle
  *
- * 8-pin TCS3200 wiring:
- *   VCC→3V3, GND→GND, S0→D0, S1→D1, S2→D2, S3→D3, OUT→D5, OE→D8
- *   Button: D7 → button → GND
- *
- * Note: white LEDs on 8-pin modules are wired to VCC — they stay on
- * with power. That cannot be turned off in software.
+ * Final pin map (no conflicts):
+ *   TCS3200: VCC→3V3, GND→GND, S0→3V3(hardwired), S1→GND(hardwired),
+ *            OE→GND(hardwired), S2→D3, S3→D4, OUT→D0
+ *   OLED:    SDA→D2, SCL→D1
+ *   SD card: SCK→D5, MISO→D6, MOSI→D7, CS→D8   (hardware SPI — fixed)
+ *   Button:  RX (GPIO3) → button → GND
  */
 
 #include <Wire.h>
 #include <math.h>
+#include <SPI.h>
+#include <SD.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 
@@ -35,10 +37,10 @@
 // =====================================================
 // WIFI + LOCAL SERVER
 // =====================================================
-const char* WIFI_SSID = "YOUR_WIFI_SSID";
-const char* WIFI_PASS = "YOUR_WIFI_PASSWORD";
+const char* WIFI_SSID = "SSID";
+const char* WIFI_PASS = "PASSWORD";
 
-const char* SERVER_URL = "http://YOUR_PC_IP:3000";
+const char* SERVER_URL = "http://IP ADDR:3000";
 const char* API_KEY    = "jaundice-demo-key-change-me";
 const char* DEVICE_ID  = "esp32-probe-1";
 
@@ -48,29 +50,28 @@ const char* DEVICE_ID  = "esp32-probe-1";
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
 
-#define OLED_SDA D4
-#define OLED_SCL D6
+#define OLED_SDA D2
+#define OLED_SCL D1
 #define OLED_ADDRESS 0x3C
 
-Adafruit_SSD1306 display(
-  SCREEN_WIDTH,
-  SCREEN_HEIGHT,
-  &Wire,
-  -1
-);
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 
 // =====================================================
-// TCS3200 (8-pin) + BUTTON
+// TCS3200 (S0/S1/OE hardwired externally — not GPIO)
 // =====================================================
-#define S0_PIN  D0
-#define S1_PIN  D1
-#define S2_PIN  D2
-#define S3_PIN  D3
-#define OUT_PIN D5
-#define OE_PIN  D8   // OE here (D8 is LOW at boot = safe for ESP8266)
+#define S2_PIN  D3
+#define S3_PIN  D4
+#define OUT_PIN D0
 
-// Button on D7 (NOT D8 — D8 is always LOW from boot pulldown)
-#define BTN_PIN D7
+// Button on RX (GPIO3) — D7 and D8 are now used by the SD card
+#define BTN_PIN 3
+
+// =====================================================
+// SD CARD (hardware SPI: SCK=D5, MISO=D6, MOSI=D7 — fixed, no #define needed)
+// =====================================================
+#define SD_CS_PIN D8
+bool sdReady = false;
+unsigned int readingCount = 0;
 
 const unsigned long GLOW_MS = 5000UL;
 
@@ -89,15 +90,12 @@ unsigned long lastBeatMs = 0;
 const unsigned long BEAT_MS = 8000UL;
 
 void sensorOff() {
-  digitalWrite(OE_PIN, HIGH);  // disable output (OE active-LOW)
-  digitalWrite(S0_PIN, LOW);
-  digitalWrite(S1_PIN, LOW);
+  // OE and S0/S1 are hardwired now — nothing to toggle here in software.
+  // Kept as a no-op placeholder in case you revert to GPIO control later.
 }
 
 void sensorOn() {
-  digitalWrite(S0_PIN, HIGH);  // 20% scaling
-  digitalWrite(S1_PIN, LOW);
-  digitalWrite(OE_PIN, LOW);   // enable output
+  // Same — S0/S1/OE are fixed externally (20% scaling, output always enabled).
 }
 
 void showPressPrompt() {
@@ -132,33 +130,72 @@ void showReadingOnDisplay() {
   display.setTextColor(SSD1306_WHITE);
   display.setCursor(0, 0);
   display.println("Jaundice Screening");
-  display.print("R: ");
-  display.println(lastR);
-  display.print("G: ");
-  display.println(lastG);
-  display.print("B: ");
-  display.println(lastB);
-  display.print("B/G: ");
-  display.println(lastBG, 3);
-  display.print("B/R: ");
-  display.println(lastBR, 3);
-  display.print("OD: ");
-  display.println(lastOD, 3);
+  display.print("R: "); display.println(lastR);
+  display.print("G: "); display.println(lastG);
+  display.print("B: "); display.println(lastB);
+  display.print("B/G: "); display.println(lastBG, 3);
+  display.print("B/R: "); display.println(lastBR, 3);
+  display.print("OD: "); display.println(lastOD, 3);
+  display.print("SD: "); display.println(sdReady ? "saved" : "FAILED");
   display.display();
+}
+
+// =====================================================
+// SD CARD LOGGING
+// =====================================================
+void initSD() {
+  if (!SD.begin(SD_CS_PIN)) {
+    Serial.println("SD card init FAILED");
+    sdReady = false;
+    return;
+  }
+  sdReady = true;
+  Serial.println("SD card init OK");
+
+  // Write CSV header only if file doesn't exist yet
+  if (!SD.exists("/readings.csv")) {
+    File f = SD.open("/readings.csv", FILE_WRITE);
+    if (f) {
+      f.println("id,timestamp_ms,r,g,b,bg_ratio,br_ratio,od_diff");
+      f.close();
+      Serial.println("Created readings.csv with header");
+    }
+  }
+}
+
+bool logReadingToSD() {
+  if (!sdReady) return false;
+
+  File f = SD.open("/readings.csv", FILE_WRITE); // append mode
+  if (!f) {
+    Serial.println("Failed to open readings.csv for writing");
+    return false;
+  }
+
+  readingCount++;
+  f.print(readingCount);       f.print(",");
+  f.print(millis());           f.print(",");
+  f.print(lastR);              f.print(",");
+  f.print(lastG);              f.print(",");
+  f.print(lastB);              f.print(",");
+  f.print(lastBG, 6);          f.print(",");
+  f.print(lastBR, 6);          f.print(",");
+  f.println(lastOD, 6);
+
+  f.close();
+  Serial.print("Logged reading #");
+  Serial.print(readingCount);
+  Serial.println(" to SD");
+  return true;
 }
 
 void setup() {
   Serial.begin(9600);
 
-  pinMode(S0_PIN, OUTPUT);
-  pinMode(S1_PIN, OUTPUT);
   pinMode(S2_PIN, OUTPUT);
   pinMode(S3_PIN, OUTPUT);
   pinMode(OUT_PIN, INPUT);
-  pinMode(OE_PIN, OUTPUT);
   pinMode(BTN_PIN, INPUT_PULLUP);
-
-  sensorOff();
 
   // Start from actual pin level (avoid fake press at boot)
   delay(50);
@@ -174,6 +211,20 @@ void setup() {
   display.clearDisplay();
   display.setTextSize(1);
   display.setTextColor(SSD1306_WHITE);
+  display.setCursor(0, 0);
+  display.println("Jaundice Screening");
+  display.println();
+  display.println("Init SD card...");
+  display.display();
+
+  initSD();
+  delay(500);
+
+  display.println(sdReady ? "SD OK" : "SD FAILED");
+  display.display();
+  delay(800);
+
+  display.clearDisplay();
   display.setCursor(0, 0);
   display.println("Jaundice Screening");
   display.println();
@@ -206,14 +257,14 @@ void setup() {
     Serial.println(beatOk ? "Heartbeat OK" : "Heartbeat FAILED");
   } else {
     display.println("WiFi FAILED");
-    display.println("Local OLED only");
-    Serial.println("WiFi failed — OLED-only mode");
+    display.println("SD + OLED only");
+    Serial.println("WiFi failed — SD + OLED-only mode");
   }
   display.display();
   delay(1200);
 
   showPressPrompt();
-  Serial.println("Ready — press button on D7 to measure");
+  Serial.println("Ready — press button (RX pin) to measure");
 }
 
 unsigned long readColorFrequency() {
@@ -243,28 +294,16 @@ void takeOneReading() {
   lastOD = log((float)lastG + 1.0f) - log((float)lastB + 1.0f);
   hasReading = true;
 
-  Serial.print("R: ");
-  Serial.print(lastR);
-  Serial.print("  G: ");
-  Serial.print(lastG);
-  Serial.print("  B: ");
-  Serial.print(lastB);
-  Serial.print("  | B/G: ");
-  Serial.print(lastBG, 4);
-  Serial.print("  B/R: ");
-  Serial.print(lastBR, 4);
-  Serial.print("  OD_diff: ");
-  Serial.println(lastOD, 4);
+  Serial.print("R: "); Serial.print(lastR);
+  Serial.print("  G: "); Serial.print(lastG);
+  Serial.print("  B: "); Serial.print(lastB);
+  Serial.print("  | B/G: "); Serial.print(lastBG, 4);
+  Serial.print("  B/R: "); Serial.print(lastBR, 4);
+  Serial.print("  OD_diff: "); Serial.println(lastOD, 4);
 }
 
-bool postReading(
-  unsigned long redFreq,
-  unsigned long greenFreq,
-  unsigned long blueFreq,
-  float bgRatio,
-  float brRatio,
-  float odDiff
-) {
+bool postReading(unsigned long redFreq, unsigned long greenFreq, unsigned long blueFreq,
+                  float bgRatio, float brRatio, float odDiff) {
   if (WiFi.status() != WL_CONNECTED) return false;
 
   WiFiClient client;
@@ -294,11 +333,7 @@ bool postReading(
   String resp = http.getString();
   http.end();
 
-  Serial.print("Local POST ");
-  Serial.print(code);
-  Serial.print(" ");
-  Serial.println(resp);
-
+  Serial.print("Local POST "); Serial.print(code); Serial.print(" "); Serial.println(resp);
   return code >= 200 && code < 300;
 }
 
@@ -323,37 +358,30 @@ bool postHeartbeat() {
   String resp = http.getString();
   http.end();
 
-  Serial.print("Heartbeat ");
-  Serial.print(code);
-  Serial.print(" ");
-  Serial.println(resp);
-
+  Serial.print("Heartbeat "); Serial.print(code); Serial.print(" "); Serial.println(resp);
   lastBeatMs = millis();
   return code >= 200 && code < 300;
 }
 
 void waitForButtonRelease() {
-  // Don't start another run until finger is off the button
   unsigned long start = millis();
   while (digitalRead(BTN_PIN) == LOW) {
     delay(20);
-    if (millis() - start > 10000UL) break; // safety
+    if (millis() - start > 10000UL) break;
   }
-  delay(250); // debounce release
+  delay(250);
   lastBtnState = HIGH;
 }
 
 void loop() {
-  // Idle: watch for a new press
   if (!sensorGlowing) {
     bool btnState = digitalRead(BTN_PIN);
 
     if (lastBtnState == HIGH && btnState == LOW) {
-      delay(50); // debounce press
+      delay(50);
       if (digitalRead(BTN_PIN) == LOW) {
         sensorGlowing = true;
         glowUntilMs = millis() + GLOW_MS;
-        sensorOn();
         showMeasuring();
         Serial.println("Button pressed → measuring 5s");
       }
@@ -366,21 +394,21 @@ void loop() {
     return;
   }
 
-  // Measuring window
   takeOneReading();
 
   if (millis() >= glowUntilMs) {
     takeOneReading();
-    sensorOff();
     sensorGlowing = false;
     showReadingOnDisplay();
     Serial.println("Done — reading held on OLED");
+
+    bool sdOk = logReadingToSD();
+    if (!sdOk) Serial.println("SD log failed");
 
     bool ok = postReading(lastR, lastG, lastB, lastBG, lastBR, lastOD);
     if (!ok) Serial.println("Local sync failed");
     else Serial.println("Local sync OK");
 
-    // Re-arm for the NEXT press (this was missing / stuck before)
     waitForButtonRelease();
     Serial.println("Ready for next button press");
   }
