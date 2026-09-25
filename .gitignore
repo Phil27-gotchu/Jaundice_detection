@@ -1,0 +1,13 @@
+# Ignore secrets / local wrangler state
+.wrangler/
+.wrangler-home/
+.dev.vars
+node_modules/
+*.log
+.DS_Store
+
+# Local SQLite history
+server/data/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
