@@ -1,10 +1,9 @@
-# Ignore secrets / local wrangler state
-.wrangler/
-.wrangler-home/
-.dev.vars
 node_modules/
 *.log
 .DS_Store
+
+# Firmware credentials (copy firmware/secrets.example.h)
+firmware/secrets.h
 
 # Local SQLite history
 server/data/

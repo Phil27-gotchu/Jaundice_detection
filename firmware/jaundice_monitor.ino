@@ -35,13 +35,15 @@
 #endif
 
 // =====================================================
-// WIFI + LOCAL SERVER
+// WIFI + LOCAL SERVER — values live in secrets.h (gitignored, see secrets.example.h)
 // =====================================================
-const char* WIFI_SSID = "MITWPU-EXAM";
-const char* WIFI_PASS = "ExaM@mIt#wPu1009";
+#include "secrets.h"
 
-const char* SERVER_URL = "http://10.23.4.54:3000";
-const char* API_KEY    = "jaundice-demo-key-change-me";
+const char* WIFI_SSID = WIFI_SSID_VALUE;
+const char* WIFI_PASS = WIFI_PASS_VALUE;
+
+const char* SERVER_URL = SERVER_URL_VALUE;
+const char* API_KEY    = API_KEY_VALUE;
 const char* DEVICE_ID  = "esp32-probe-1";
 
 // =====================================================
@@ -396,7 +398,7 @@ void loop() {
 
   takeOneReading();
 
-  if (millis() >= glowUntilMs) {
+  if ((long)(millis() - glowUntilMs) >= 0) {  // wrap-safe after millis() overflows (~49 days)
     takeOneReading();
     sensorGlowing = false;
     showReadingOnDisplay();

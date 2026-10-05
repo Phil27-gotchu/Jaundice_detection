@@ -10,34 +10,54 @@
 const http = require("http");
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
 const { networkInterfaces } = require("os");
 const { renderDashboard } = require("../shared/dashboard");
 const store = require("./store");
 
-const PORT = Number(process.env.PORT || 3000);
-const API_KEY = process.env.API_KEY || "jaundice-demo-key-change-me";
-const DEVICE_TIMEOUT_MS = Number(process.env.DEVICE_TIMEOUT_MS || 30000);
-const PUBLIC_DIR = path.join(__dirname, "..", "cloudflare", "public");
+function positiveNumber(value, fallback) {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
+const PORT = positiveNumber(process.env.PORT, 3000);
+const DEFAULT_API_KEY = "jaundice-demo-key-change-me";
+const API_KEY = process.env.API_KEY || DEFAULT_API_KEY;
+const DEVICE_TIMEOUT_MS = positiveNumber(process.env.DEVICE_TIMEOUT_MS, 30000);
+const PUBLIC_DIR = path.join(__dirname, "..", "public");
+
+const MAX_BODY_BYTES = 64 * 1024;
+const DEFAULT_DEVICE_ID = "esp32-probe-1";
+const MAX_DEVICE_ID_LENGTH = 64;
+/** Earliest accepted reading timestamp; also rejects junk like 1e300 that breaks date formatting. */
+const MIN_READING_TS = Date.UTC(2020, 0, 1);
+const MAX_FUTURE_SKEW_MS = 24 * 60 * 60 * 1000;
 
 /** @type {{ deviceId: string, lastSeen: number } | null} */
 let device = null;
 
 const MIME = {
-  ".html": "text/html; charset=utf-8",
   ".css": "text/css; charset=utf-8",
   ".json": "application/json; charset=utf-8",
   ".svg": "image/svg+xml",
   ".ico": "image/x-icon",
+  ".png": "image/png",
 };
 
-function cors(res) {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-API-Key");
+class HttpError extends Error {
+  constructor(status, message) {
+    super(message);
+    this.status = status;
+  }
+}
+
+function securityHeaders(res) {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("Referrer-Policy", "same-origin");
 }
 
 function sendJson(res, status, data) {
-  cors(res);
   const body = JSON.stringify(data);
   res.writeHead(status, {
     "Content-Type": "application/json; charset=utf-8",
@@ -46,13 +66,48 @@ function sendJson(res, status, data) {
   res.end(body);
 }
 
+function sendText(res, status, text) {
+  res.writeHead(status, { "Content-Type": "text/plain; charset=utf-8" });
+  res.end(text);
+}
+
 function readBody(req) {
   return new Promise((resolve, reject) => {
+    if (Number(req.headers["content-length"]) > MAX_BODY_BYTES) {
+      return reject(new HttpError(413, "Request body too large"));
+    }
     const chunks = [];
-    req.on("data", (c) => chunks.push(c));
-    req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+    let size = 0;
+    let failed = false;
+    req.on("data", (c) => {
+      if (failed) return;
+      size += c.length;
+      if (size > MAX_BODY_BYTES) {
+        failed = true;
+        return reject(new HttpError(413, "Request body too large"));
+      }
+      chunks.push(c);
+    });
+    req.on("end", () => {
+      if (!failed) resolve(Buffer.concat(chunks).toString("utf8"));
+    });
     req.on("error", reject);
   });
+}
+
+/** Parses a JSON object body; empty body → {}. Throws HttpError(400) otherwise. */
+function parseJsonObject(raw) {
+  if (!raw.trim()) return {};
+  let body;
+  try {
+    body = JSON.parse(raw);
+  } catch {
+    throw new HttpError(400, "Invalid JSON body");
+  }
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    throw new HttpError(400, "Expected a JSON object");
+  }
+  return body;
 }
 
 function toNumber(value) {
@@ -63,8 +118,21 @@ function toNumber(value) {
   return null;
 }
 
+function cleanDeviceId(value) {
+  if (typeof value !== "string") return DEFAULT_DEVICE_ID;
+  const id = value.trim().slice(0, MAX_DEVICE_ID_LENGTH);
+  return id || DEFAULT_DEVICE_ID;
+}
+
+/** Constant-time string compare (hashing first so lengths always match). */
+function safeEqual(a, b) {
+  const ha = crypto.createHash("sha256").update(String(a)).digest();
+  const hb = crypto.createHash("sha256").update(String(b)).digest();
+  return crypto.timingSafeEqual(ha, hb);
+}
+
 function checkApiKey(req) {
-  return req.headers["x-api-key"] === API_KEY;
+  return safeEqual(req.headers["x-api-key"] || "", API_KEY);
 }
 
 /** Parse YYYY-MM-DD as local calendar day start/end (ms). */
@@ -82,6 +150,7 @@ function parseDayBound(value, endOfDay) {
 function toDateInputValue(ms) {
   if (!Number.isFinite(ms)) return "";
   const dt = new Date(ms);
+  if (Number.isNaN(dt.getTime())) return "";
   const y = dt.getFullYear();
   const mo = String(dt.getMonth() + 1).padStart(2, "0");
   const d = String(dt.getDate()).padStart(2, "0");
@@ -93,10 +162,8 @@ function toDateInputValue(ms) {
  * @returns {{ from: number | null, to: number | null, fromInput: string, toInput: string, limit: number }}
  */
 function parseRange(url) {
-  const fromInput = url.searchParams.get("from") || "";
-  const toInput = url.searchParams.get("to") || "";
-  let from = parseDayBound(fromInput, false);
-  let to = parseDayBound(toInput, true);
+  let from = parseDayBound(url.searchParams.get("from"), false);
+  let to = parseDayBound(url.searchParams.get("to"), true);
 
   // Also accept raw epoch ms (API clients).
   const fromMs = toNumber(url.searchParams.get("fromMs"));
@@ -116,31 +183,28 @@ function parseRange(url) {
   return {
     from,
     to,
-    fromInput: fromInput || (from !== null ? toDateInputValue(from) : ""),
-    toInput: toInput || (to !== null ? toDateInputValue(to) : ""),
+    fromInput: from !== null ? toDateInputValue(from) : "",
+    toInput: to !== null ? toDateInputValue(to) : "",
     limit,
   };
 }
 
-function serveStatic(req, res, urlPath) {
-  let filePath = urlPath === "/" ? "/index.html" : urlPath;
-  filePath = path.normalize(filePath).replace(/^(\.\.[/\\])+/, "");
-  const abs = path.join(PUBLIC_DIR, filePath);
+/** Serves CSS/images from public/. HTML files are templates and are only served through their routes. */
+async function serveStatic(req, res, urlPath) {
+  if (req.method !== "GET" && req.method !== "HEAD") return sendText(res, 405, "Method not allowed");
 
-  if (!abs.startsWith(PUBLIC_DIR)) {
-    res.writeHead(403);
-    return res.end("Forbidden");
+  const abs = path.join(PUBLIC_DIR, path.normalize(urlPath));
+  const ext = path.extname(abs).toLowerCase();
+  if (!abs.startsWith(PUBLIC_DIR + path.sep) || !MIME[ext]) return sendText(res, 404, "Not found");
+
+  let data;
+  try {
+    data = await fs.promises.readFile(abs);
+  } catch {
+    return sendText(res, 404, "Not found");
   }
-
-  fs.readFile(abs, (err, data) => {
-    if (err) {
-      res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
-      return res.end("Not found");
-    }
-    const ext = path.extname(abs).toLowerCase();
-    res.writeHead(200, { "Content-Type": MIME[ext] || "application/octet-stream" });
-    res.end(data);
-  });
+  res.writeHead(200, { "Content-Type": MIME[ext], "Content-Length": data.length });
+  res.end(req.method === "HEAD" ? undefined : data);
 }
 
 function lanIPv4() {
@@ -179,12 +243,7 @@ function currentSnapshot(range) {
 async function handlePostReading(req, res) {
   if (!checkApiKey(req)) return sendJson(res, 401, { error: "Unauthorized" });
 
-  let body;
-  try {
-    body = JSON.parse(await readBody(req));
-  } catch {
-    return sendJson(res, 400, { error: "Invalid JSON body" });
-  }
+  const body = parseJsonObject(await readBody(req));
 
   const r = toNumber(body.r);
   const g = toNumber(body.g);
@@ -192,20 +251,20 @@ async function handlePostReading(req, res) {
   const bgRatio = toNumber(body.bgRatio);
   const brRatio = toNumber(body.brRatio);
   const odDiff = toNumber(body.odDiff);
-  const ts = toNumber(body.ts) ?? Date.now();
+  const ts = body.ts === undefined ? Date.now() : toNumber(body.ts);
 
   if ([r, g, b, bgRatio, brRatio, odDiff].some((v) => v === null)) {
     return sendJson(res, 400, {
       error: "Expected numeric fields: r, g, b, bgRatio, brRatio, odDiff",
     });
   }
+  if (ts === null || ts < MIN_READING_TS || ts > Date.now() + MAX_FUTURE_SKEW_MS) {
+    return sendJson(res, 400, { error: "ts must be epoch milliseconds between 2020 and now" });
+  }
 
   const reading = store.insertReading({
     ts,
-    deviceId:
-      typeof body.deviceId === "string" && body.deviceId.trim()
-        ? body.deviceId.trim()
-        : "esp32-probe-1",
+    deviceId: cleanDeviceId(body.deviceId),
     r,
     g,
     b,
@@ -221,20 +280,8 @@ async function handlePostReading(req, res) {
 async function handleHeartbeat(req, res) {
   if (!checkApiKey(req)) return sendJson(res, 401, { error: "Unauthorized" });
 
-  let body = {};
-  try {
-    const raw = await readBody(req);
-    if (raw.trim()) body = JSON.parse(raw);
-  } catch {
-    return sendJson(res, 400, { error: "Invalid JSON body" });
-  }
-
-  const deviceId =
-    typeof body.deviceId === "string" && body.deviceId.trim()
-      ? body.deviceId.trim()
-      : "esp32-probe-1";
-
-  device = { deviceId, lastSeen: Date.now() };
+  const body = parseJsonObject(await readBody(req));
+  device = { deviceId: cleanDeviceId(body.deviceId), lastSeen: Date.now() };
   return sendJson(res, 200, { ok: true, device });
 }
 
@@ -249,23 +296,28 @@ function handleGetDaily(req, res, url) {
   return sendJson(res, 200, { daily, filter: { from: range.fromInput, to: range.toInput } });
 }
 
-function handleDashboard(req, res, url) {
-  const templatePath = path.join(PUBLIC_DIR, "index.html");
-  fs.readFile(templatePath, "utf8", (err, template) => {
-    if (err) {
-      res.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" });
-      return res.end("Dashboard template missing");
-    }
-    const html = renderDashboard(template, currentSnapshot(parseRange(url)));
-    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-    res.end(html);
-  });
+async function handleDashboard(req, res, url) {
+  const template = await fs.promises.readFile(path.join(PUBLIC_DIR, "index.html"), "utf8");
+  const html = renderDashboard(template, currentSnapshot(parseRange(url)));
+  res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
+  res.end(html);
 }
 
 function csvEscape(value) {
   const s = String(value ?? "");
   if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
   return s;
+}
+
+/** Text cells starting with = + - @ are run as formulas by spreadsheet apps. */
+function csvText(value) {
+  const s = String(value ?? "");
+  return csvEscape(/^[=+\-@\t\r]/.test(s) ? `'${s}` : s);
+}
+
+function isoOrBlank(ms) {
+  const dt = new Date(ms);
+  return Number.isNaN(dt.getTime()) ? "" : dt.toISOString();
 }
 
 function handleExportCsv(req, res, url) {
@@ -292,84 +344,88 @@ function handleExportCsv(req, res, url) {
   for (const row of readings) {
     lines.push(
       [
-        new Date(row.ts).toISOString(),
-        row.ts,
-        row.deviceId,
-        row.r,
-        row.g,
-        row.b,
-        row.bgRatio,
-        row.brRatio,
-        row.odDiff,
-      ]
-        .map(csvEscape)
-        .join(",")
+        csvEscape(isoOrBlank(row.ts)),
+        csvEscape(row.ts),
+        csvText(row.deviceId),
+        csvEscape(row.r),
+        csvEscape(row.g),
+        csvEscape(row.b),
+        csvEscape(row.bgRatio),
+        csvEscape(row.brRatio),
+        csvEscape(row.odDiff),
+      ].join(",")
     );
   }
 
   const body = lines.join("\n") + "\n";
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-  cors(res);
   res.writeHead(200, {
     "Content-Type": "text/csv; charset=utf-8",
     "Content-Disposition": `attachment; filename="jaundice-readings-${stamp}.csv"`,
     "Content-Length": Buffer.byteLength(body),
+    "Cache-Control": "no-store",
   });
   res.end(body);
 }
 
-async function handleClear(req, res) {
+function handleClear(req, res) {
   if (!checkApiKey(req)) return sendJson(res, 401, { error: "Unauthorized" });
   store.clearReadings();
   device = null;
   return sendJson(res, 200, { ok: true });
 }
 
+async function route(req, res, url) {
+  if (url.pathname === "/api/readings" && req.method === "POST") {
+    return handlePostReading(req, res);
+  }
+  if (url.pathname === "/api/heartbeat" && req.method === "POST") {
+    return handleHeartbeat(req, res);
+  }
+  if (url.pathname === "/api/readings" && req.method === "GET") {
+    return handleGetReadings(req, res, url);
+  }
+  if (url.pathname === "/api/daily" && req.method === "GET") {
+    return handleGetDaily(req, res, url);
+  }
+  if (url.pathname === "/api/export.csv" && req.method === "GET") {
+    return handleExportCsv(req, res, url);
+  }
+  if (url.pathname === "/api/clear" && req.method === "POST") {
+    return handleClear(req, res);
+  }
+  if (url.pathname === "/api/health" && req.method === "GET") {
+    return sendJson(res, 200, { ok: true, service: "jaundice-monitor-local" });
+  }
+  if ((url.pathname === "/" || url.pathname === "/index.html") && req.method === "GET") {
+    return handleDashboard(req, res, url);
+  }
+  if (url.pathname.startsWith("/api/")) {
+    return sendJson(res, 404, { error: "Not found" });
+  }
+  return serveStatic(req, res, url.pathname);
+}
+
 store.openStore();
 
 const server = http.createServer(async (req, res) => {
-  const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
-
-  if (req.method === "OPTIONS") {
-    cors(res);
-    res.writeHead(204);
-    return res.end();
-  }
-
+  securityHeaders(res);
   try {
-    if (url.pathname === "/api/readings" && req.method === "POST") {
-      return await handlePostReading(req, res);
+    // Fixed base: the Host header is client-controlled and an invalid one would make URL() throw.
+    let url;
+    try {
+      url = new URL(req.url || "/", "http://localhost");
+    } catch {
+      throw new HttpError(400, "Bad request");
     }
-    if (url.pathname === "/api/heartbeat" && req.method === "POST") {
-      return await handleHeartbeat(req, res);
-    }
-    if (url.pathname === "/api/readings" && req.method === "GET") {
-      return handleGetReadings(req, res, url);
-    }
-    if (url.pathname === "/api/daily" && req.method === "GET") {
-      return handleGetDaily(req, res, url);
-    }
-    if (url.pathname === "/api/export.csv" && req.method === "GET") {
-      return handleExportCsv(req, res, url);
-    }
-    if (url.pathname === "/api/clear" && req.method === "POST") {
-      return await handleClear(req, res);
-    }
-    if (url.pathname === "/api/health") {
-      return sendJson(res, 200, {
-        ok: true,
-        service: "jaundice-monitor-local",
-        db: store.getDbPath(),
-      });
-    }
-    if ((url.pathname === "/" || url.pathname === "/index.html") && req.method === "GET") {
-      return handleDashboard(req, res, url);
-    }
-
-    return serveStatic(req, res, url.pathname);
+    await route(req, res, url);
   } catch (err) {
-    console.error(err);
-    return sendJson(res, 500, { error: "Server error" });
+    if (!(err instanceof HttpError)) console.error(err);
+    if (res.headersSent) return res.end();
+    const status = err instanceof HttpError ? err.status : 500;
+    const message = err instanceof HttpError ? err.message : "Server error";
+    res.setHeader("Connection", "close");
+    return sendJson(res, status, { error: message });
   }
 });
 
@@ -378,6 +434,9 @@ server.listen(PORT, "0.0.0.0", () => {
   console.log("\n  Jaundice Monitor — local server");
   console.log(`  Dashboard:  http://localhost:${PORT}`);
   console.log(`  Database:   ${store.getDbPath()}`);
+  if (API_KEY === DEFAULT_API_KEY) {
+    console.log("  WARNING:    default device API key — set API_KEY (and the same value in firmware)");
+  }
   if (lan) {
     console.log(`  ESP URL:    http://${lan}:${PORT}`);
     console.log(`  (put that in firmware SERVER_URL — not localhost)\n`);

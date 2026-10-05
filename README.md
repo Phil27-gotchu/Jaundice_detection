@@ -19,7 +19,6 @@ Button press → ESP measures RGB → OLED + SD card
 
 - **ESP → PC:** Wi‑Fi HTTP to `SERVER_URL` (this PC’s LAN IP, not `localhost`).
 - **Browser → PC:** `http://localhost:3000`. The page is server-rendered HTML/CSS (SVG chart). It polls every 2 seconds.
-- **Cloudflare:** not used. `cloudflare/` is an optional Worker if you later host the dashboard on the internet. Local run is `node server/index.js`.
 
 ## What you need
 
@@ -35,14 +34,14 @@ Arduino libraries: **Adafruit GFX**, **Adafruit SSD1306**, **SD**, **SPI**. Boar
 | Path | Role |
 |------|------|
 | `firmware/jaundice_monitor.ino` | NodeMCU firmware: measure, OLED, SD, Wi‑Fi sync |
+| `firmware/secrets.example.h` | Template for `secrets.h` (Wi‑Fi, server URL, API key — gitignored) |
 | `server/index.js` | Local dashboard + API |
 | `server/store.js` | SQLite persistence for readings |
 | `server/data/readings.sqlite` | Created at runtime (gitignored) |
 | `server/seed.js` | Fake readings across several days (no ESP) |
-| `cloudflare/public/index.html` | Dashboard HTML |
-| `cloudflare/public/styles.css` | Dashboard CSS (Light / Dark) |
+| `public/index.html` | Dashboard HTML |
+| `public/styles.css` | Dashboard CSS (Light / Dark) |
 | `shared/dashboard.js` | Fills the HTML and draws the SVG chart |
-| `cloudflare/` | Unused Worker + KV code (parked) |
 
 ## Run the dashboard
 
@@ -52,7 +51,7 @@ node server/index.js
 
 Open **http://localhost:3000** (not a `file://` path).
 
-The server prints an **ESP URL** such as `http://10.23.4.54:3000`. That is what belongs in firmware `SERVER_URL`.
+The server prints an **ESP URL** such as `http://192.168.1.11:3000`. That is what belongs in firmware `SERVER_URL`.
 
 ### Fake data (no ESP)
 
@@ -83,17 +82,20 @@ History lives in SQLite — restarting Node keeps the table. The SD card still k
 
 ## Firmware
 
-Edit `firmware/jaundice_monitor.ino` before flashing:
+Credentials live in `firmware/secrets.h`, which is gitignored so Wi‑Fi passwords never get committed. Copy the template once and fill it in before flashing:
 
-```cpp
-const char* WIFI_SSID = "YOUR_WIFI_SSID";
-const char* WIFI_PASS = "YOUR_WIFI_PASSWORD";
-const char* SERVER_URL = "http://10.23.4.54:3000";  // PC LAN IP — not localhost
-const char* API_KEY    = "jaundice-demo-key-change-me";
-const char* DEVICE_ID  = "esp32-probe-1";
+```bash
+cp firmware/secrets.example.h firmware/secrets.h
 ```
 
-`API_KEY` must match the server. If this PC’s Wi‑Fi IP changes, update `SERVER_URL` and reflash.
+```cpp
+#define WIFI_SSID_VALUE  "YOUR_WIFI_SSID"
+#define WIFI_PASS_VALUE  "YOUR_WIFI_PASSWORD"
+#define SERVER_URL_VALUE "http://192.168.1.11:3000"  // PC LAN IP — not localhost
+#define API_KEY_VALUE    "jaundice-demo-key-change-me"
+```
+
+`API_KEY_VALUE` must match the server's `API_KEY`. If this PC’s Wi‑Fi IP changes, update `SERVER_URL_VALUE` and reflash.
 
 ### Probe behaviour
 
@@ -149,11 +151,10 @@ Default key `jaundice-demo-key-change-me` (`X-API-Key` where noted). Override wi
 | `GET` | `/api/readings?limit=80&from=YYYY-MM-DD&to=YYYY-MM-DD` | none |
 | `GET` | `/api/daily?from=YYYY-MM-DD&to=YYYY-MM-DD` | none |
 | `GET` | `/api/export.csv?from=…&to=…` | none |
-| `POST` | `/api/clear` | `X-API-Key` |
+| `POST` | `/api/clear` (deletes all readings) | `X-API-Key` |
 | `GET` | `/api/health` | none |
 
-`from` / `to` are local calendar days (inclusive). You can also pass `fromMs` / `toMs` as epoch milliseconds. Optional `ts` on POST sets the reading timestamp (seed script uses this).
-
+`from` / `to` are local calendar days (inclusive). You can also pass `fromMs` / `toMs` as epoch milliseconds. Optional `ts` on POST sets the reading timestamp (seed script uses this); it must be epoch milliseconds between 2020 and now. Request bodies are capped at 64 KB and `deviceId` at 64 characters.
 ```json
 {
   "deviceId": "esp32-probe-1",
@@ -165,7 +166,3 @@ Default key `jaundice-demo-key-change-me` (`X-API-Key` where noted). Override wi
   "odDiff": 0.32
 }
 ```
-
-## Cloudflare (not in the live path)
-
-Do not run Wrangler unless you want a public URL later. A deployed Worker would host the same HTML and store history in KV; the ESP would then use that URL as `SERVER_URL`. Until you deploy, it does nothing.
