@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Jaundice Monitor</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/styles.css" />
+  <script>
+    (function () {
+      try {
+        var theme = localStorage.getItem("jaundice-theme");
+        if (theme !== "light" && theme !== "dark") {
+          theme = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        }
+        document.documentElement.setAttribute("data-theme", theme);
+      } catch (err) {
+        document.documentElement.setAttribute("data-theme", "light");
+      }
+    })();
+  </script>
+</head>
+<body>
+  <header class="top">
+    <div>
+      <h1>Jaundice Monitor</h1>
+      <p class="sub">Reflectance probe · melanin-corrected ratios · SQLite history</p>
+    </div>
+    <div class="top-end">
+      <div class="theme-switch" role="group" aria-label="Colour mode">
+        <button type="button" class="theme-btn" data-theme-set="light">Light</button>
+        <button type="button" class="theme-btn" data-theme-set="dark">Dark</button>
+      </div>
+      <div class="status">
+        <span class="status-line{{ONLINE_CLASS}}" id="onlineLabel">{{ONLINE_LABEL}}</span>
+        <span class="status-meta" id="lastSeen">{{LAST_SEEN}}</span>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section class="filters block" aria-label="Date range">
+      <form class="filter-form" id="rangeForm" method="get" action="/">
+        <div class="filter-fields">
+          <label class="filter-field">
+            <span>From</span>
+            <input type="date" name="from" id="fromDate" value="{{FILTER_FROM}}" />
+          </label>
+          <label class="filter-field">
+            <span>To</span>
+            <input type="date" name="to" id="toDate" value="{{FILTER_TO}}" />
+          </label>
+        </div>
+        <div class="filter-actions">
+          <button type="submit" class="btn">Apply</button>
+          <button type="button" class="btn" data-range="today">Today</button>
+          <button type="button" class="btn" data-range="7d">7 days</button>
+          <button type="button" class="btn" data-range="all">All</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="metrics" aria-label="Latest reading">
+      <div class="metric">
+        <span class="label">OD Diff</span>
+        <span class="value" id="odDiff">{{OD_DIFF}}</span>
+      </div>
+      <div class="metric">
+        <span class="label">B / G</span>
+        <span class="value" id="bgRatio">{{BG_RATIO}}</span>
+      </div>
+      <div class="metric">
+        <span class="label">B / R</span>
+        <span class="value" id="brRatio">{{BR_RATIO}}</span>
+      </div>
+      <div class="metric metric-wide">
+        <span class="label">Raw RGB</span>
+        <span class="value value-rgb" id="rgbRaw">{{RGB_RAW}}</span>
+      </div>
+    </section>
+
+    <section class="grid">
+      <section class="block chart-block">
+        <div class="block-head">
+          <h2>Trends</h2>
+          <p class="hint">R · G · B · B/G · OD</p>
+        </div>
+        <div class="chart-wrap">
+          {{CHART}}
+        </div>
+      </section>
+
+      <aside class="block">
+        <div class="block-head">
+          <h2>Device</h2>
+        </div>
+        <dl class="meta-list">
+          <div>
+            <dt>ID</dt>
+            <dd id="deviceId">{{DEVICE_ID}}</dd>
+          </div>
+          <div>
+            <dt>Samples</dt>
+            <dd id="sampleCount">{{SAMPLE_COUNT}}</dd>
+          </div>
+          <div>
+            <dt>Poll</dt>
+            <dd>2 s</dd>
+          </div>
+          <div>
+            <dt>Store</dt>
+            <dd>SQLite</dd>
+          </div>
+        </dl>
+      </aside>
+    </section>
+
+    <section class="block">
+      <div class="block-head">
+        <h2>Daily summary</h2>
+        <p class="hint">avg / min / max OD · avg B/G</p>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Day</th>
+              <th>Samples</th>
+              <th>Avg OD</th>
+              <th>Min OD</th>
+              <th>Max OD</th>
+              <th>Avg B/G</th>
+            </tr>
+          </thead>
+          <tbody id="dailyBody">
+            {{DAILY_BODY}}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="block">
+      <div class="block-head">
+        <h2>Recent readings</h2>
+        <div class="actions">
+          <a class="btn" id="exportBtn" href="{{EXPORT_HREF}}">Export CSV</a>
+          <button type="button" class="btn" id="refreshBtn">Refresh</button>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>R</th>
+              <th>G</th>
+              <th>B</th>
+              <th>B/G</th>
+              <th>B/R</th>
+              <th>OD</th>
+            </tr>
+          </thead>
+          <tbody id="readingsBody">
+            {{TABLE_BODY}}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    Screening aid only — not a clinical diagnosis. History survives server restarts.
+  </footer>
+
+  <script>
+    const POLL_MS = 2000;
+
+    function ymd(date) {
+      const y = date.getFullYear();
+      const m = String(date.getMonth() + 1).padStart(2, "0");
+      const d = String(date.getDate()).padStart(2, "0");
+      return y + "-" + m + "-" + d;
+    }
+
+    function pollUrl() {
+      return location.pathname + location.search;
+    }
+
+    async function refresh() {
+      try {
+        const res = await fetch(pollUrl(), { cache: "no-store" });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const doc = new DOMParser().parseFromString(await res.text(), "text/html");
+        document.querySelector("header.top").replaceWith(doc.querySelector("header.top"));
+        document.querySelector("main").replaceWith(doc.querySelector("main"));
+      } catch (err) {
+        console.error(err);
+        const label = document.getElementById("onlineLabel");
+        if (!label) return;
+        label.textContent = "API unreachable";
+        label.classList.add("is-offline");
+        label.classList.remove("is-online");
+      }
+    }
+
+    function applyPreset(kind) {
+      const params = new URLSearchParams();
+      const today = new Date();
+      if (kind === "today") {
+        params.set("from", ymd(today));
+        params.set("to", ymd(today));
+      } else if (kind === "7d") {
+        const start = new Date(today);
+        start.setDate(start.getDate() - 6);
+        params.set("from", ymd(start));
+        params.set("to", ymd(today));
+      }
+      const q = params.toString();
+      location.search = q ? "?" + q : "";
+    }
+
+    document.addEventListener("click", (event) => {
+      const themeBtn = event.target.closest("[data-theme-set]");
+      if (themeBtn) {
+        const theme = themeBtn.getAttribute("data-theme-set");
+        document.documentElement.setAttribute("data-theme", theme);
+        try {
+          localStorage.setItem("jaundice-theme", theme);
+        } catch (err) {}
+        return;
+      }
+      const preset = event.target.closest("[data-range]");
+      if (preset) {
+        event.preventDefault();
+        applyPreset(preset.getAttribute("data-range"));
+        return;
+      }
+      if (event.target.closest("#refreshBtn")) refresh();
+    });
+
+    setInterval(refresh, POLL_MS);
+  </script>
+</body>
+</html>
