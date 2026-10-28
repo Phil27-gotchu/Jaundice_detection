@@ -120,3 +120,39 @@ def toggle_theme(d):
 
 def body_bg(d):
     return d.execute_script("return getComputedStyle(document.body).backgroundColor;")
+<<<<<<< HEAD
+=======
+
+
+def theme_snapshot(d):
+    """Capture theme markers and visible computed colours across common containers."""
+    return d.execute_script("""
+        const root = document.documentElement;
+        const body = document.body;
+        const selectors = ['body', 'main', '#app', '.dashboard', '.container',
+                           'header', '.card', '.panel', 'table'];
+        const colours = {};
+        for (const selector of selectors) {
+            const el = document.querySelector(selector);
+            if (!el) continue;
+            const style = getComputedStyle(el);
+            colours[selector] = [style.backgroundColor, style.color,
+                                 style.borderTopColor];
+        }
+        return {
+            markers: [root.getAttribute('data-theme'), body.getAttribute('data-theme'),
+                      root.className, body.className],
+            colours
+        };
+    """)
+
+
+def theme_markers_changed(before, after):
+    return before['markers'] != after['markers']
+
+
+def theme_colours_changed(before, after):
+    return any(before['colours'].get(k) != v
+               for k, v in after['colours'].items()
+               if k in before['colours'])
+>>>>>>> 66891b8 (update)

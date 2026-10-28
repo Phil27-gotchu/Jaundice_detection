@@ -8,7 +8,11 @@ import re
 from helpers import (
     BASE, body_bg, body_text, click_refresh, get_theme, heartbeat, js_class,
     js_count, js_href, js_text, post_reading, toggle_theme, wait, wait_count,
+<<<<<<< HEAD
     wait_text,
+=======
+    wait_text, theme_snapshot, theme_markers_changed, theme_colours_changed,
+>>>>>>> 66891b8 (update)
 )
 
 
@@ -98,6 +102,7 @@ def test_SEL13_device_goes_offline_after_timeout(page):
 
 
 # ------------------------------------------------------------------- theme
+<<<<<<< HEAD
 def test_SEL14_theme_toggle_changes_theme(page):
     before = get_theme(page)
     toggle_theme(page)
@@ -106,6 +111,10 @@ def test_SEL14_theme_toggle_changes_theme(page):
 
 
 def test_SEL15_theme_is_saved_in_local_storage(page):
+=======
+
+def test_SEL14_theme_is_saved_in_local_storage(page):
+>>>>>>> 66891b8 (update)
     toggle_theme(page)
     wait(page, lambda d: d.execute_script(
         "return Object.keys(localStorage).some(function(k){"
@@ -113,7 +122,11 @@ def test_SEL15_theme_is_saved_in_local_storage(page):
         "theme not found in localStorage")
 
 
+<<<<<<< HEAD
 def test_SEL16_theme_survives_refresh(page):
+=======
+def test_SEL15_theme_survives_refresh(page):
+>>>>>>> 66891b8 (update)
     toggle_theme(page)
     wait(page, lambda d: get_theme(d) is not None, 5)
     chosen = get_theme(page)
@@ -123,6 +136,7 @@ def test_SEL16_theme_survives_refresh(page):
          f"theme was {get_theme(page)!r} after refresh, expected {chosen!r}")
 
 
+<<<<<<< HEAD
 def test_SEL17_theme_colours_differ(page):
     before = body_bg(page)
     toggle_theme(page)
@@ -131,11 +145,19 @@ def test_SEL17_theme_colours_differ(page):
 
 # ------------------------------------------------------ export / XSS / down
 def test_SEL18_export_csv_link(page):
+=======
+# ------------------------------------------------------ export / XSS / down
+def test_SEL16_export_csv_link(page):
+>>>>>>> 66891b8 (update)
     href = js_href(page, 'a[href*="export.csv"]')
     assert href and href.endswith("/api/export.csv"), href
 
 
+<<<<<<< HEAD
 def test_SEL19_xss_payload_is_shown_as_text(page):
+=======
+def test_SEL17_xss_payload_is_shown_as_text(page):
+>>>>>>> 66891b8 (update)
     payload = "<img src=x onerror=alert(1)>"
     post_reading(deviceId=payload)
     click_refresh(page)
@@ -144,7 +166,11 @@ def test_SEL19_xss_payload_is_shown_as_text(page):
     assert js_count(page, "#readingsBody img") == 0
 
 
+<<<<<<< HEAD
 def test_SEL20_server_stopped_shows_unreachable(page, server):
+=======
+def test_SEL18_server_stopped_shows_unreachable(page, server):
+>>>>>>> 66891b8 (update)
     post_reading()
     click_refresh(page)
     wait_text(page, "#sampleCount", "1")

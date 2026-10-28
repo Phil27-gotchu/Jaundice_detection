@@ -36,9 +36,20 @@
 
 // =====================================================
 // WIFI + LOCAL SERVER
+// ============================================1";
+const char* API_KEY    = "jaundice-demo-key-change-me";
+const char* DEVICE_ID  = "esp32-probe-1";
+
 // =====================================================
+<<<<<<< HEAD
 const char* WIFI_SSID = "MITWPU-EXAM";
 const char* WIFI_PASS = "ExaM@mIt#wPu1009";
+=======
+// OLED DISPLAY (I2C)
+// ==============================================================
+const char* WIFI_SSID = "SSID";
+const char* WIFI_PASS = "PASSWORD";
+>>>>>>> 66891b8 (update)
 
 const char* SERVER_URL = "http://10.81.5.110:3000";
 const char* API_KEY    = "jaundice-demo-key-change-me";

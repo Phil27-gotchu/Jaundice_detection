@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /** Seed fake readings into the local server. */
 
-const API_URL = (process.env.API_URL || "http://127.0.0.1:3000").replace(/\/$/, "");
+const API_URL = (process.env.API_URL || "http://10.23.4.54:3000").replace(/\/$/, "");
 const API_KEY = process.env.API_KEY || "jaundice-demo-key-change-me";
 const COUNT = Number(process.env.COUNT || 12);
 
