@@ -26,7 +26,7 @@
   <header class="top">
     <div>
       <h1>Jaundice Monitor</h1>
-      <p class="sub">Reflectance probe · melanin-corrected ratios</p>
+      <p class="sub">Reflectance probe · melanin-corrected ratios · ML diagnostic screening</p>
     </div>
     <div class="top-end">
       <div class="theme-switch" role="group" aria-label="Colour mode">
@@ -41,6 +41,39 @@
   </header>
 
   <main>
+    <!-- ML Diagnostic Screening Card -->
+    <section class="block ml-card{{ML_CARD_CLASS}}" id="mlResultCard" aria-label="Jaundice risk assessment">
+      <div class="ml-card-head">
+        <div class="ml-head-left">
+          <span class="ml-badge-tag">Logistic Regression ML Model</span>
+          <h2 class="ml-title">Jaundice Risk Analysis</h2>
+        </div>
+        <div class="ml-status-pill{{ML_STATUS_CLASS}}" id="mlStatusPill">
+          <span class="ml-icon">{{ML_STATUS_ICON}}</span>
+          <span class="ml-status-text" id="mlStatusText">{{ML_STATUS_TEXT}}</span>
+        </div>
+      </div>
+      <div class="ml-card-body">
+        <div class="ml-meter-box">
+          <div class="ml-prob-row">
+            <span class="ml-prob-label">Estimated Chance of Neonatal Jaundice:</span>
+            <span class="ml-prob-value" id="mlProbValue">{{ML_PROB_VALUE}}</span>
+          </div>
+          <div class="ml-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ML_PROB_PERCENT}}">
+            <div class="ml-fill{{ML_PROGRESS_CLASS}}" id="mlProgressFill" style="width: {{ML_PROB_PERCENT}}%;"></div>
+          </div>
+          <div class="ml-scale-labels">
+            <span>0% (Low Risk / Normal)</span>
+            <span>50% (Screening Threshold)</span>
+            <span>100% (High Jaundice Risk)</span>
+          </div>
+        </div>
+        <div class="ml-rec-box">
+          <p class="ml-rec-text" id="mlRecommendation">{{ML_RECOMMENDATION}}</p>
+        </div>
+      </div>
+    </section>
+
     <section class="metrics" aria-label="Latest reading">
       <div class="metric">
         <span class="label">OD Diff</span>
@@ -73,7 +106,7 @@
 
       <aside class="block">
         <div class="block-head">
-          <h2>Device</h2>
+          <h2>Device & Model</h2>
         </div>
         <dl class="meta-list">
           <div>
@@ -83,6 +116,14 @@
           <div>
             <dt>Samples</dt>
             <dd id="sampleCount">{{SAMPLE_COUNT}}</dd>
+          </div>
+          <div>
+            <dt>Model</dt>
+            <dd>Logistic Regression</dd>
+          </div>
+          <div>
+            <dt>Split / Acc</dt>
+            <dd>70:30 (93.3%)</dd>
           </div>
           <div>
             <dt>Poll</dt>
@@ -100,6 +141,7 @@
       <div class="block-head">
         <h2>Recent readings</h2>
         <div class="actions">
+          <button type="button" class="btn btn-scan" id="simScanBtn" title="Simulate patient scan through ML">Simulate Scan</button>
           <a class="btn" href="/api/export.csv">Export CSV</a>
           <button type="button" class="btn" id="refreshBtn">Refresh</button>
         </div>
@@ -126,7 +168,7 @@
   </main>
 
   <footer>
-    Screening aid only — not a clinical diagnosis.
+    Screening aid only — not a clinical diagnosis. ML model trained on 70/30 split of neonatal bilirubin dataset.
   </footer>
 
   <script>
@@ -149,6 +191,19 @@
       }
     }
 
+    async function simulateScan() {
+      const btn = document.getElementById("simScanBtn");
+      if (btn) btn.disabled = true;
+      try {
+        await fetch("/api/simulate", { method: "POST" });
+        await refresh();
+      } catch (err) {
+        console.error("Simulation failed:", err);
+      } finally {
+        if (btn) btn.disabled = false;
+      }
+    }
+
     document.addEventListener("click", (event) => {
       const themeBtn = event.target.closest("[data-theme-set]");
       if (themeBtn) {
@@ -160,6 +215,7 @@
         return;
       }
       if (event.target.closest("#refreshBtn")) refresh();
+      if (event.target.closest("#simScanBtn")) simulateScan();
     });
 
     setInterval(refresh, POLL_MS);

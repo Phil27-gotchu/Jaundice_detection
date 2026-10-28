@@ -426,3 +426,203 @@ footer {
     border-bottom: 0;
   }
 }
+
+/* --------------------------------------------------------------------------
+   ML Diagnostic Screening & Risk Assessment
+   -------------------------------------------------------------------------- */
+.ml-card {
+  margin-bottom: 1.25rem;
+  padding: 1.25rem 1.4rem;
+  border-left: 4px solid var(--line);
+  transition: border-color 0.25s ease, background 0.25s ease;
+}
+
+.ml-card.ml-idle {
+  border-left-color: var(--line);
+}
+
+.ml-card.ml-risk-low {
+  border-left-color: var(--ok);
+  background: linear-gradient(to right, rgba(47, 107, 79, 0.05), var(--surface));
+}
+
+.ml-card.ml-risk-high {
+  border-left-color: var(--chart-r);
+  background: linear-gradient(to right, rgba(181, 74, 74, 0.06), var(--surface));
+}
+
+.ml-card.ml-risk-mod {
+  border-left-color: var(--warn);
+  background: linear-gradient(to right, rgba(138, 106, 31, 0.06), var(--surface));
+}
+
+.ml-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+
+.ml-badge-tag {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  margin-bottom: 0.2rem;
+}
+
+.ml-title {
+  margin: 0;
+  font-size: 1.2rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.ml-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.35rem 0.85rem;
+  border-radius: 999px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--text);
+}
+
+.ml-status-pill.is-idle {
+  color: var(--muted);
+  border-color: var(--line);
+}
+
+.ml-status-pill.is-low-risk {
+  color: var(--ok);
+  background: rgba(47, 107, 79, 0.12);
+  border-color: rgba(47, 107, 79, 0.3);
+}
+
+.ml-status-pill.is-high-risk {
+  color: var(--chart-r);
+  background: rgba(181, 74, 74, 0.14);
+  border-color: rgba(181, 74, 74, 0.35);
+}
+
+.ml-status-pill.is-mod-risk {
+  color: var(--warn);
+  background: rgba(138, 106, 31, 0.14);
+  border-color: rgba(138, 106, 31, 0.35);
+}
+
+.ml-meter-box {
+  margin-bottom: 0.9rem;
+}
+
+.ml-prob-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 0.4rem;
+}
+
+.ml-prob-label {
+  font-size: 0.88rem;
+  color: var(--muted);
+}
+
+.ml-prob-value {
+  font-family: var(--mono);
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.ml-track {
+  width: 100%;
+  height: 10px;
+  background: var(--line);
+  border-radius: 999px;
+  overflow: hidden;
+  position: relative;
+}
+
+.ml-fill {
+  height: 100%;
+  width: 0%;
+  border-radius: 999px;
+  transition: width 0.4s ease-out;
+  background: var(--muted);
+}
+
+.ml-fill.fill-low {
+  background: var(--ok);
+}
+
+.ml-fill.fill-mod {
+  background: var(--warn);
+}
+
+.ml-fill.fill-high {
+  background: var(--chart-r);
+}
+
+.ml-scale-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.72rem;
+  font-family: var(--mono);
+  color: var(--muted);
+  margin-top: 0.3rem;
+}
+
+.ml-rec-box {
+  border-top: 1px dashed var(--line);
+  padding-top: 0.75rem;
+}
+
+.ml-rec-text {
+  margin: 0;
+  font-size: 0.88rem;
+  line-height: 1.4;
+  color: var(--text);
+}
+
+.tbl-badge {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 3px;
+  vertical-align: middle;
+  font-weight: 500;
+}
+
+.tbl-badge-low {
+  color: var(--ok);
+  background: rgba(47, 107, 79, 0.12);
+}
+
+.tbl-badge-high {
+  color: var(--chart-r);
+  background: rgba(181, 74, 74, 0.15);
+}
+
+.tbl-badge-mod {
+  color: var(--warn);
+  background: rgba(138, 106, 31, 0.15);
+}
+
+.btn-scan {
+  background: var(--surface);
+  border-color: var(--ink);
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.btn-scan:hover {
+  background: rgba(31, 58, 76, 0.08);
+}

@@ -1,5 +1,7 @@
 "use strict";
 
+const { predict } = require("./mlPredictor");
+
 function escapeHtml(value) {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
@@ -158,8 +160,9 @@ function renderChartSvg(readings) {
       const bandX = Math.max(left, x - colW / 2);
       const bandW = Math.min(left + plotW, x + colW / 2) - bandX;
       const r = readings[i];
-      const tipW = 132;
-      const tipH = 108;
+      const pred = r.ml || predict(r);
+      const tipW = 142;
+      const tipH = 124;
       let tipX = x + 10;
       if (tipX + tipW > W - 4) tipX = x - tipW - 10;
       const tipY = top + 8;
@@ -170,7 +173,8 @@ function renderChartSvg(readings) {
         `B  ${r.b}`,
         `B/G  ${fmtNum(r.bgRatio, 4)}`,
         `OD  ${fmtNum(r.odDiff, 4)}`,
-      ];
+        pred ? `ML  ${pred.percentage}% (${pred.riskLevel})` : "",
+      ].filter(Boolean);
       const text = lines
         .map(
           (line, li) =>
@@ -208,17 +212,25 @@ function renderTableBody(readings) {
 
   const rows = [...readings].reverse().slice(0, 25);
   return rows
-    .map(
-      (r) => `<tr>
+    .map((r) => {
+      const pred = r.ml || predict(r);
+      const badge = pred
+        ? pred.riskLevel === "HIGH"
+          ? ` <span class="tbl-badge tbl-badge-high" title="${pred.percentage}% jaundice probability">High</span>`
+          : pred.riskLevel === "MODERATE"
+          ? ` <span class="tbl-badge tbl-badge-mod" title="${pred.percentage}% jaundice probability">Borderline</span>`
+          : ` <span class="tbl-badge tbl-badge-low" title="${pred.percentage}% jaundice probability">Low</span>`
+        : "";
+      return `<tr>
         <td>${escapeHtml(fmtTime(r.ts))}</td>
         <td>${escapeHtml(r.r)}</td>
         <td>${escapeHtml(r.g)}</td>
         <td>${escapeHtml(r.b)}</td>
         <td>${escapeHtml(fmtNum(r.bgRatio, 4))}</td>
         <td>${escapeHtml(fmtNum(r.brRatio, 4))}</td>
-        <td>${escapeHtml(fmtNum(r.odDiff, 4))}</td>
-      </tr>`
-    )
+        <td>${escapeHtml(fmtNum(r.odDiff, 4))}${badge}</td>
+      </tr>`;
+    })
     .join("");
 }
 
@@ -243,6 +255,42 @@ function renderDashboard(template, data) {
   const lastSeenTs = device?.lastSeen || latest?.ts;
   const lastSeen = lastSeenTs ? `Last sync ${fmtTime(lastSeenTs)}` : "";
 
+  const ml = latest ? (latest.ml || predict(latest)) : null;
+
+  let mlCardClass = " ml-idle";
+  let mlStatusClass = " is-idle";
+  let mlStatusIcon = "⏳";
+  let mlStatusText = "Awaiting patient scan";
+  let mlProbValue = "—";
+  let mlProbPercent = "0";
+  let mlProgressClass = "";
+  let mlRecommendation = "Position the probe gently on the newborn's skin and press the button for a 5-second optical scan.";
+
+  if (ml) {
+    if (ml.riskLevel === "HIGH") {
+      mlCardClass = " ml-risk-high";
+      mlStatusClass = " is-high-risk";
+      mlStatusIcon = "⚠️";
+      mlStatusText = "High Chance of Jaundice";
+      mlProgressClass = " fill-high";
+    } else if (ml.riskLevel === "MODERATE") {
+      mlCardClass = " ml-risk-mod";
+      mlStatusClass = " is-mod-risk";
+      mlStatusIcon = "⚠️";
+      mlStatusText = "Moderate Risk (Borderline)";
+      mlProgressClass = " fill-mod";
+    } else {
+      mlCardClass = " ml-risk-low";
+      mlStatusClass = " is-low-risk";
+      mlStatusIcon = "✓";
+      mlStatusText = "Low Chance of Jaundice";
+      mlProgressClass = " fill-low";
+    }
+    mlProbValue = `${ml.percentage}% chance`;
+    mlProbPercent = String(Math.min(100, Math.max(0, ml.percentage)));
+    mlRecommendation = ml.recommendation;
+  }
+
   const replacements = {
     "{{ONLINE_CLASS}}": onlineClass,
     "{{ONLINE_LABEL}}": escapeHtml(onlineLabel),
@@ -255,6 +303,14 @@ function renderDashboard(template, data) {
     "{{SAMPLE_COUNT}}": escapeHtml(String(data.count ?? 0)),
     "{{CHART}}": renderChartSvg(readings),
     "{{TABLE_BODY}}": renderTableBody(readings),
+    "{{ML_CARD_CLASS}}": mlCardClass,
+    "{{ML_STATUS_CLASS}}": mlStatusClass,
+    "{{ML_STATUS_ICON}}": mlStatusIcon,
+    "{{ML_STATUS_TEXT}}": escapeHtml(mlStatusText),
+    "{{ML_PROB_VALUE}}": escapeHtml(mlProbValue),
+    "{{ML_PROB_PERCENT}}": mlProbPercent,
+    "{{ML_PROGRESS_CLASS}}": mlProgressClass,
+    "{{ML_RECOMMENDATION}}": escapeHtml(mlRecommendation),
   };
 
   let html = template;

@@ -12,6 +12,7 @@ const fs = require("fs");
 const path = require("path");
 const { networkInterfaces } = require("os");
 const { renderDashboard } = require("../shared/dashboard");
+const { predict } = require("../shared/mlPredictor");
 
 const PORT = Number(process.env.PORT || 3000);
 const API_KEY = process.env.API_KEY || "jaundice-demo-key-change-me";
@@ -122,6 +123,8 @@ async function handlePostReading(req, res) {
     });
   }
 
+  const ml = predict({ bgRatio, brRatio, odDiff });
+
   const reading = {
     ts: Date.now(),
     deviceId:
@@ -134,6 +137,7 @@ async function handlePostReading(req, res) {
     bgRatio,
     brRatio,
     odDiff,
+    ml,
   };
 
   history.push(reading);
@@ -163,6 +167,53 @@ async function handleHeartbeat(req, res) {
   return sendJson(res, 200, { ok: true, device });
 }
 
+async function handleSimulateScan(req, res, url) {
+  const mode = url.searchParams.get("type") || "random";
+  let r, g, b, bgRatio, brRatio, odDiff;
+
+  if (mode === "positive" || mode === "jaundice" || mode === "high") {
+    r = 25000 + Math.round(Math.random() * 5000);
+    g = 16000 + Math.round(Math.random() * 3000);
+    b = 8500 + Math.round(Math.random() * 1500);
+    bgRatio = Number((b / g).toFixed(6));
+    brRatio = Number((b / r).toFixed(6));
+    odDiff = Number((Math.log(g + 1) - Math.log(b + 1)).toFixed(6));
+  } else if (mode === "negative" || mode === "normal" || mode === "low") {
+    r = 5000 + Math.round(Math.random() * 2000);
+    g = 3500 + Math.round(Math.random() * 1000);
+    b = 3000 + Math.round(Math.random() * 800);
+    bgRatio = Number((b / g).toFixed(6));
+    brRatio = Number((b / r).toFixed(6));
+    odDiff = Number((Math.log(g + 1) - Math.log(b + 1)).toFixed(6));
+  } else {
+    const isJaundice = Math.random() > 0.5;
+    return handleSimulateScan(
+      req,
+      res,
+      new URL(`/api/simulate?type=${isJaundice ? "positive" : "negative"}`, "http://localhost")
+    );
+  }
+
+  const ml = predict({ bgRatio, brRatio, odDiff });
+  const reading = {
+    ts: Date.now(),
+    deviceId: "esp32-probe-1",
+    r,
+    g,
+    b,
+    bgRatio,
+    brRatio,
+    odDiff,
+    ml,
+  };
+
+  history.push(reading);
+  while (history.length > MAX_READINGS) history.shift();
+  device = { deviceId: reading.deviceId, lastSeen: reading.ts };
+
+  return sendJson(res, 200, { ok: true, simulated: true, reading });
+}
+
 function currentSnapshot(limit = 80) {
   const capped = Math.min(500, Math.max(1, Number(limit) || 80));
   const readings = history.slice(-capped);
@@ -174,6 +225,7 @@ function currentSnapshot(limit = 80) {
     latest,
     count: readings.length,
     readings,
+    ml: latest ? (latest.ml || predict(latest)) : null,
   };
 }
 
@@ -267,6 +319,9 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname === "/api/heartbeat" && req.method === "POST") {
       return await handleHeartbeat(req, res);
     }
+    if (url.pathname === "/api/simulate" && (req.method === "POST" || req.method === "GET")) {
+      return await handleSimulateScan(req, res, url);
+    }
     if (url.pathname === "/api/readings" && req.method === "GET") {
       return handleGetReadings(req, res, url);
     }
@@ -292,7 +347,7 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, "0.0.0.0", () => {
   const lan = lanIPv4();
-  console.log("\n  Jaundice Monitor — local server");
+  console.log("\n  Jaundice Monitor — local server (with ML diagnostic screening)");
   console.log(`  Dashboard:  http://localhost:${PORT}`);
   if (lan) {
     console.log(`  ESP URL:    http://${lan}:${PORT}`);
