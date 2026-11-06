@@ -3,11 +3,13 @@
 <img width="1600" height="992" alt="image" src="https://github.com/user-attachments/assets/ce9a0a8c-2497-4114-bf4c-5f169a98f273" />
 <img width="1440" height="1080" alt="image" src="https://github.com/user-attachments/assets/4b1c903a-e6df-4b25-b926-5d772b62a140" />
 <img width="788" height="741" alt="image" src="https://github.com/user-attachments/assets/6b0b9efa-1de5-490d-9944-4274ac1e457e" />
+<img width="1058" height="1280" alt="image" src="https://github.com/user-attachments/assets/5b947f0f-013a-4d02-84e7-546c6ae7c1e2" />
 
 https://github.com/user-attachments/assets/e82b3212-3eca-4484-8a4e-a6971c654823
 
 
 <img width="1440" height="1080" alt="image" src="https://github.com/user-attachments/assets/13d95789-dc1d-4d0c-ab9c-9d9fb362e4d1" />
+<img width="1307" height="1600" alt="image" src="https://github.com/user-attachments/assets/d6afdbfa-c68d-4e2b-a0ed-5ceebbf161f9" />
 
 ESP8266 NodeMCU probe (TCS3200 + OLED + SD card) plus a live HTML/CSS dashboard on your PC.
 
