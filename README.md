@@ -4,6 +4,9 @@
 <img width="1440" height="1080" alt="image" src="https://github.com/user-attachments/assets/4b1c903a-e6df-4b25-b926-5d772b62a140" />
 <img width="788" height="741" alt="image" src="https://github.com/user-attachments/assets/6b0b9efa-1de5-490d-9944-4274ac1e457e" />
 
+https://github.com/user-attachments/assets/e82b3212-3eca-4484-8a4e-a6971c654823
+
+
 <img width="1440" height="1080" alt="image" src="https://github.com/user-attachments/assets/13d95789-dc1d-4d0c-ab9c-9d9fb362e4d1" />
 
 ESP8266 NodeMCU probe (TCS3200 + OLED + SD card) plus a live HTML/CSS dashboard on your PC.
