@@ -30,7 +30,7 @@ Button press → ESP measures RGB → OLED + SD card
 
 - **ESP → PC:** Wi‑Fi HTTP to `SERVER_URL` (this PC’s LAN IP, not `localhost`).
 - **Browser → PC:** `http://localhost:3000`. The page is server-rendered HTML/CSS (SVG chart). It polls every 2 seconds.
-- **Cloudflare:** not used. `cloudflare/` is an optional Worker if you later host the dashboard on the internet. Local run is `node server/index.js`.
+  
 
 ## What you need
 
@@ -51,7 +51,6 @@ Arduino libraries: **Adafruit GFX**, **Adafruit SSD1306**, **SD**, **SPI**. Boar
 | `cloudflare/public/index.html` | Dashboard HTML |
 | `cloudflare/public/styles.css` | Dashboard CSS (Light / Dark) |
 | `shared/dashboard.js` | Fills the HTML and draws the SVG chart |
-| `cloudflare/` | Unused Worker + KV code (parked) |
 
 ## Run the dashboard
 
