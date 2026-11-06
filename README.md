@@ -164,6 +164,3 @@ Default key `jaundice-demo-key-change-me` (`X-API-Key` where noted). Override wi
 }
 ```
 
-## Cloudflare (not in the live path)
-
-Do not run Wrangler unless you want a public URL later. A deployed Worker would host the same HTML and store history in KV; the ESP would then use that URL as `SERVER_URL`. Until you deploy, it does nothing.
