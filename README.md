@@ -1,4 +1,10 @@
 # Jaundice Monitor
+<img width="1280" height="699" alt="image" src="https://github.com/user-attachments/assets/c04c5221-7b4e-4f01-92b4-bea33ec4399c" />
+<img width="1600" height="992" alt="image" src="https://github.com/user-attachments/assets/ce9a0a8c-2497-4114-bf4c-5f169a98f273" />
+<img width="1440" height="1080" alt="image" src="https://github.com/user-attachments/assets/4b1c903a-e6df-4b25-b926-5d772b62a140" />
+<img width="788" height="741" alt="image" src="https://github.com/user-attachments/assets/6b0b9efa-1de5-490d-9944-4274ac1e457e" />
+
+<img width="1440" height="1080" alt="image" src="https://github.com/user-attachments/assets/13d95789-dc1d-4d0c-ab9c-9d9fb362e4d1" />
 
 ESP8266 NodeMCU probe (TCS3200 + OLED + SD card) plus a live HTML/CSS dashboard on your PC.
 
