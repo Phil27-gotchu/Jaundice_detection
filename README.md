@@ -1,5 +1,6 @@
 # Jaundice Monitor
-<img width="4761" height="6586" alt="diagram" src="https://github.com/user-attachments/assets/8f1c6ce5-b358-444a-bb55-2609ace3b593" />
+<img width="7674" height="6682" alt="diagram (1)" src="https://github.com/user-attachments/assets/fef7ad40-dec0-4f09-821d-665c02ab945f" />
+
 
 <img width="1280" height="699" alt="image" src="https://github.com/user-attachments/assets/c04c5221-7b4e-4f01-92b4-bea33ec4399c" />
 <img width="1600" height="992" alt="image" src="https://github.com/user-attachments/assets/ce9a0a8c-2497-4114-bf4c-5f169a98f273" />
